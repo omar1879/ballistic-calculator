@@ -1,0 +1,3 @@
+@echo off
+streamlit run ballistic_web_app.py
+pause
