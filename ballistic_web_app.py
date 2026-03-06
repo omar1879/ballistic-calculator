@@ -528,7 +528,7 @@ class BallisticWebApp:
         # اختيار اللغة
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            language = st.selectbox("Language / اللغة", ["English", "العربية"])
+            language = st.selectbox("Language / اللغة", ["English", "العربية"], key='language_selector')
             st.session_state.language = language
 
         # النصوص حسب اللغة
@@ -618,16 +618,16 @@ class BallisticWebApp:
                 texts['ammo_source'],
                 [texts['library'], texts['manual']],
                 horizontal=True,
-                key='ammo_source'
+                key='ammo_source_radio'
             )
 
             if ammo_source == texts['library']:
                 companies = sorted(self.df['Company'].unique())
-                company = st.selectbox(texts['company'], companies, key='company')
+                company = st.selectbox(texts['company'], companies, key='company_select')
 
                 company_ammo = self.df[self.df['Company'] == company]
                 ammo_types = company_ammo['Type'].tolist()
-                selected_type = st.selectbox(texts['type'], ammo_types, key='type')
+                selected_type = st.selectbox(texts['type'], ammo_types, key='type_select')
 
                 ammo_data = company_ammo[company_ammo['Type'] == selected_type].iloc[0]
 
@@ -645,16 +645,16 @@ class BallisticWebApp:
                     st.metric(texts['velocity'], f"{mv} fps")
             else:
                 weight = float(st.number_input(texts['weight'], min_value=20.0, max_value=100.0, value=55.0, step=1.0,
-                                               key='manual_weight'))
+                                               key='manual_weight_input'))
                 bc = float(
                     st.number_input(texts['bc'], min_value=0.1, max_value=0.8, value=0.255, format="%.3f", step=0.001,
-                                    key='manual_bc'))
+                                    key='manual_bc_input'))
                 mv = float(
                     st.number_input(texts['velocity'], min_value=2000.0, max_value=4000.0, value=3240.0, step=10.0,
-                                    key='manual_vel'))
+                                    key='manual_vel_input'))
                 length = float(
                     st.number_input(texts['length'], min_value=0.5, max_value=1.5, value=0.735, format="%.3f",
-                                    step=0.01, key='manual_len'))
+                                    step=0.01, key='manual_len_input'))
 
             st.divider()
 
@@ -664,22 +664,25 @@ class BallisticWebApp:
             col_r1, col_r2 = st.columns(2)
             with col_r1:
                 barrel = float(st.number_input(texts['barrel'], min_value=16.0, max_value=30.0, value=24.0, step=1.0,
-                                               key='barrel'))
+                                               key='barrel_input'))
                 twist = float(
-                    st.number_input(texts['twist'], min_value=6.0, max_value=14.0, value=7.0, step=0.5, key='twist'))
+                    st.number_input(texts['twist'], min_value=6.0, max_value=14.0, value=7.0, step=0.5,
+                                    key='twist_input'))
             with col_r2:
                 zero_range = float(
-                    st.number_input(texts['zero'], min_value=50.0, max_value=400.0, value=100.0, step=10.0, key='zero'))
-                range_unit = st.selectbox(texts['range_unit'], [texts['yards'], texts['meters']], key='range_unit')
+                    st.number_input(texts['zero'], min_value=50.0, max_value=400.0, value=100.0, step=10.0,
+                                    key='zero_input'))
+                range_unit = st.selectbox(texts['range_unit'], [texts['yards'], texts['meters']],
+                                          key='range_unit_select')
 
             col_s1, col_s2 = st.columns(2)
             with col_s1:
-                scope_sys = st.selectbox(texts['scope'], ["MOA", "MRAD"], key='scope_sys')
+                scope_sys = st.selectbox(texts['scope'], ["MOA", "MRAD"], key='scope_sys_select')
             with col_s2:
                 if scope_sys == "MOA":
-                    click_value = float(st.selectbox(texts['click'], [0.25, 0.5, 1.0], key='click'))
+                    click_value = float(st.selectbox(texts['click'], [0.25, 0.5, 1.0], key='click_select_moa'))
                 else:
-                    click_value = float(st.selectbox(texts['click'], [0.1, 0.05], key='click'))
+                    click_value = float(st.selectbox(texts['click'], [0.1, 0.05], key='click_select_mrad'))
 
             st.divider()
 
@@ -694,7 +697,7 @@ class BallisticWebApp:
                     key='weather_location_input'
                 )
             with col_w2:
-                if st.button(texts['fetch_weather'], use_container_width=True):
+                if st.button(texts['fetch_weather'], key='fetch_weather_button', use_container_width=True):
                     with st.spinner(
                             "جاري جلب بيانات الطقس..." if language == "العربية" else "Fetching weather data..."):
                         weather_data = self.fetch_weather_data(weather_location)
@@ -713,25 +716,12 @@ class BallisticWebApp:
             if st.session_state.weather_data:
                 self.display_weather_info(st.session_state.weather_data)
 
-                # تحديث قيم المدخلات بناءً على بيانات الطقس
-                if 'weather_data' in st.session_state and st.session_state.weather_data:
-                    temperature = st.session_state.weather_data['temperature']
-                    pressure = st.session_state.weather_data['pressure']
-            else:
-                # استخدام القيم اليدوية
-                temperature = 15.0
-                pressure = 1013.25
-
+            # حقول الارتفاع ودرجة الحرارة والضغط
             col_e1, col_e2, col_e3 = st.columns(3)
             with col_e1:
                 altitude = float(
                     st.number_input(texts['altitude'], min_value=0.0, max_value=10000.0, value=0.0, step=100.0,
-                                    key='altitude'))
-            col_e1, col_e2, col_e3 = st.columns(3)
-            with col_e1:
-                altitude = float(
-                    st.number_input(texts['altitude'], min_value=0.0, max_value=10000.0, value=0.0, step=100.0,
-                                    key='altitude'))
+                                    key='altitude_input_field'))
             with col_e2:
                 # استخدام درجة الحرارة من API إذا كانت موجودة
                 try:
@@ -744,7 +734,7 @@ class BallisticWebApp:
 
                 temperature = float(
                     st.number_input(texts['temperature'], min_value=-30.0, max_value=50.0, value=default_temp, step=1.0,
-                                    key='temperature'))
+                                    key='temperature_input_field'))
             with col_e3:
                 # استخدام الضغط من API إذا كان موجوداً
                 try:
@@ -757,7 +747,15 @@ class BallisticWebApp:
 
                 pressure = float(
                     st.number_input(texts['pressure'], min_value=800.0, max_value=1100.0, value=default_pressure,
-                                    step=10.0, format="%.2f", key='pressure'))
+                                    step=10.0, format="%.2f", key='pressure_input_field'))
+
+            st.divider()
+
+            # قسم الرياح - استخدام الساعة الدائرية
+            st.subheader("💨 Wind Settings / إعدادات الرياح")
+
+            # استخدام عمودين لعرض الساعة والتحكم
+            wind_col1, wind_col2 = st.columns([1, 1])
 
             with wind_col1:
                 # التحكم في سرعة الرياح
@@ -767,27 +765,37 @@ class BallisticWebApp:
                     max_value=50.0,
                     value=st.session_state.wind_speed,
                     step=1.0,
-                    key='wind_speed_slider'
+                    key='wind_speed_slider_control'
                 )
                 st.session_state.wind_speed = wind_speed
 
                 # عرض الزاوية الحالية
                 st.metric("Current Direction / الاتجاه الحالي", f"{st.session_state.wind_angle:.0f}°")
 
-                # أزرار سريعة للاتجاهات الأساسية
+                # أزرار سريعة للاتجاهات الأساسية - طريقة مبسطة
                 st.markdown("**Quick Directions / اتجاهات سريعة:**")
 
-                # الحل المعدل للمشكلة: التأكد من استخدام جميع الأعمدة بشكل صحيح
-                quick_cols = st.columns(4)
-                directions = [('N', 0), ('E', 90), ('S', 180), ('W', 270)]
+                col_n, col_e, col_s, col_w = st.columns(4)
 
-                for i, (label, angle) in enumerate(directions):
-                    with quick_cols[i]:
-                        if st.button(label, key=f'quick_dir_{angle}'):
-                            st.session_state.wind_angle = float(angle)
-                            st.rerun()
-                        # إضافة نص توضيحي صغير أسفل الزر
-                        st.caption(f"{angle}°")
+                with col_n:
+                    if st.button("N (0°)", key='quick_dir_n_btn', use_container_width=True):
+                        st.session_state.wind_angle = 0.0
+                        st.rerun()
+
+                with col_e:
+                    if st.button("E (90°)", key='quick_dir_e_btn', use_container_width=True):
+                        st.session_state.wind_angle = 90.0
+                        st.rerun()
+
+                with col_s:
+                    if st.button("S (180°)", key='quick_dir_s_btn', use_container_width=True):
+                        st.session_state.wind_angle = 180.0
+                        st.rerun()
+
+                with col_w:
+                    if st.button("W (270°)", key='quick_dir_w_btn', use_container_width=True):
+                        st.session_state.wind_angle = 270.0
+                        st.rerun()
 
             with wind_col2:
                 # التحكم في الاتجاه باستخدام شريط تمرير دائري
@@ -797,7 +805,7 @@ class BallisticWebApp:
                     max_value=360,
                     value=int(st.session_state.wind_angle),
                     step=5,
-                    key='wind_angle_slider',
+                    key='wind_angle_slider_control',
                     format="%d°"
                 )
                 st.session_state.wind_angle = float(wind_angle)
@@ -824,15 +832,20 @@ class BallisticWebApp:
             # مسافة الهدف وزر الحساب
             target_range = float(
                 st.number_input(texts['target'], min_value=50.0, max_value=1000.0, value=300.0, step=25.0,
-                                key='target'))
+                                key='target_input_field'))
 
-            calculate_button = st.button(texts['calculate'], type="primary", use_container_width=True)
+            calculate_button = st.button(texts['calculate'], type="primary", key='calculate_button_main',
+                                         use_container_width=True)
 
+        with col_right:
             if calculate_button:
                 display_range = target_range
                 if range_unit == texts['meters']:
-                    target_range = target_range * 1.09361
-                    zero_range = zero_range * 1.09361
+                    target_range_calc = target_range * 1.09361
+                    zero_range_calc = zero_range * 1.09361
+                else:
+                    target_range_calc = target_range
+                    zero_range_calc = zero_range
 
                 params = {
                     'weight': weight,
@@ -840,8 +853,8 @@ class BallisticWebApp:
                     'mv': mv,
                     'length': length,
                     'twist': twist,
-                    'zero_range': zero_range,
-                    'target_range': target_range,
+                    'zero_range': zero_range_calc,
+                    'target_range': target_range_calc,
                     'wind_speed': st.session_state.wind_speed,
                     'wind_angle': st.session_state.wind_angle,
                     'altitude': altitude,
@@ -861,78 +874,76 @@ class BallisticWebApp:
                     'unit': result['unit_label']
                 })
 
-                with col_right:
-                    st.subheader("📈 " + texts['results'])
+                st.subheader("📈 " + texts['results'])
 
-                    col_r1, col_r2 = st.columns(2)
+                col_r1, col_r2 = st.columns(2)
 
-                    with col_r1:
-                        # تحديد اتجاه الارتفاع
-                        if result['drop'] > 0:
-                            elevation_direction = "⬆️ أعلى" if language == "العربية" else "⬆️ Up"
-                            direction_symbol = " +"
-                        else:
-                            elevation_direction = "⬇️ أسفل" if language == "العربية" else "⬇️ Down"
-                            direction_symbol = " -"
-
-                        st.metric(
-                            f"{texts['elevation']} {elevation_direction}",
-                            f"{abs(result['drop']):.2f} {result['unit_label']}",
-                            f"{direction_symbol}{abs(result['clicks_elev'])} {texts['clicks']}"
-                        )
-
-                    with col_r2:
-                        # تحديد اتجاه الانجراف
-                        if result['drift'] > 0:
-                            wind_direction = "➡️ يمين" if language == "العربية" else "➡️ Right"
-                            direction_symbol = " +"
-                        else:
-                            wind_direction = "⬅️ يسار" if language == "العربية" else "⬅️ Left"
-                            direction_symbol = " -"
-
-                        st.metric(
-                            f"{texts['windage']} {wind_direction}",
-                            f"{abs(result['drift']):.2f} {result['unit_label']}",
-                            f"{direction_symbol}{abs(result['clicks_wind'])} {texts['clicks']}"
-                        )
-
-                    col_r3, col_r4, col_r5 = st.columns(3)
-                    with col_r3:
-                        st.metric(
-                            texts['velocity_result'],
-                            f"{int(result['velocity'])} fps"
-                        )
-                    with col_r4:
-                        st.metric(
-                            texts['energy'],
-                            f"{int(result['energy'])} ft-lbs"
-                        )
-                    with col_r5:
-                        st.metric(
-                            "Air Density",
-                            f"{result['density_factor']:.3f}"
-                        )
-
-                    if result['is_stable']:
-                        st.success(f"**Stability:** {result['stability']:.2f} {texts['stable']}")
+                with col_r1:
+                    # تحديد اتجاه الارتفاع
+                    if result['drop'] > 0:
+                        elevation_direction = "⬆️ أعلى" if language == "العربية" else "⬆️ Up"
+                        direction_symbol = " +"
                     else:
-                        st.error(f"**Stability:** {result['stability']:.2f} {texts['unstable']}")
+                        elevation_direction = "⬇️ أسفل" if language == "العربية" else "⬇️ Down"
+                        direction_symbol = " -"
 
-                    st.plotly_chart(self.plot_trajectory(params, result), use_container_width=True)
+                    st.metric(
+                        f"{texts['elevation']} {elevation_direction}",
+                        f"{abs(result['drop']):.2f} {result['unit_label']}",
+                        f"{direction_symbol}{abs(result['clicks_elev'])} {texts['clicks']}"
+                    )
+
+                with col_r2:
+                    # تحديد اتجاه الانجراف
+                    if result['drift'] > 0:
+                        wind_direction = "➡️ يمين" if language == "العربية" else "➡️ Right"
+                        direction_symbol = " +"
+                    else:
+                        wind_direction = "⬅️ يسار" if language == "العربية" else "⬅️ Left"
+                        direction_symbol = " -"
+
+                    st.metric(
+                        f"{texts['windage']} {wind_direction}",
+                        f"{abs(result['drift']):.2f} {result['unit_label']}",
+                        f"{direction_symbol}{abs(result['clicks_wind'])} {texts['clicks']}"
+                    )
+
+                col_r3, col_r4, col_r5 = st.columns(3)
+                with col_r3:
+                    st.metric(
+                        texts['velocity_result'],
+                        f"{int(result['velocity'])} fps"
+                    )
+                with col_r4:
+                    st.metric(
+                        texts['energy'],
+                        f"{int(result['energy'])} ft-lbs"
+                    )
+                with col_r5:
+                    st.metric(
+                        "Air Density",
+                        f"{result['density_factor']:.3f}"
+                    )
+
+                if result['is_stable']:
+                    st.success(f"**Stability:** {result['stability']:.2f} {texts['stable']}")
+                else:
+                    st.error(f"**Stability:** {result['stability']:.2f} {texts['unstable']}")
+
+                st.plotly_chart(self.plot_trajectory(params, result), use_container_width=True)
 
             else:
-                with col_right:
-                    if st.session_state.calculation_history:
-                        st.subheader("📜 Last Calculation")
-                        last = st.session_state.calculation_history[-1]
-                        range_text = texts['yards'] if range_unit == texts['yards'] else texts['meters']
-                        st.info(f"Last: {last['range']} {range_text} - "
-                                f"Drop: {last['drop']:.2f} {last['unit']}, Drift: {last['drift']:.2f} {last['unit']}")
+                if st.session_state.calculation_history:
+                    st.subheader("📜 Last Calculation")
+                    last = st.session_state.calculation_history[-1]
+                    range_text = texts['yards'] if range_unit == texts['yards'] else texts['meters']
+                    st.info(f"Last: {last['range']} {range_text} - "
+                            f"Drop: {last['drop']:.2f} {last['unit']}, Drift: {last['drift']:.2f} {last['unit']}")
 
-                    if len(st.session_state.calculation_history) > 0:
-                        st.subheader("📜 History")
-                        history_df = pd.DataFrame(st.session_state.calculation_history[-10:])
-                        st.dataframe(history_df, use_container_width=True)
+                if len(st.session_state.calculation_history) > 0:
+                    st.subheader("📜 History")
+                    history_df = pd.DataFrame(st.session_state.calculation_history[-10:])
+                    st.dataframe(history_df, use_container_width=True)
 
 
 if __name__ == "__main__":
