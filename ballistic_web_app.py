@@ -727,28 +727,37 @@ class BallisticWebApp:
                 altitude = float(
                     st.number_input(texts['altitude'], min_value=0.0, max_value=10000.0, value=0.0, step=100.0,
                                     key='altitude'))
+            col_e1, col_e2, col_e3 = st.columns(3)
+            with col_e1:
+                altitude = float(
+                    st.number_input(texts['altitude'], min_value=0.0, max_value=10000.0, value=0.0, step=100.0,
+                                    key='altitude'))
             with col_e2:
                 # استخدام درجة الحرارة من API إذا كانت موجودة
-                default_temp = st.session_state.weather_data['temperature'] if st.session_state.weather_data else 15.0
+                try:
+                    if st.session_state.weather_data and 'temperature' in st.session_state.weather_data:
+                        default_temp = float(st.session_state.weather_data['temperature'])
+                    else:
+                        default_temp = 15.0
+                except (TypeError, ValueError):
+                    default_temp = 15.0
+
                 temperature = float(
                     st.number_input(texts['temperature'], min_value=-30.0, max_value=50.0, value=default_temp, step=1.0,
                                     key='temperature'))
             with col_e3:
                 # استخدام الضغط من API إذا كان موجوداً
-                default_pressure = st.session_state.weather_data[
-                    'pressure'] if st.session_state.weather_data else 1013.25
+                try:
+                    if st.session_state.weather_data and 'pressure' in st.session_state.weather_data:
+                        default_pressure = float(st.session_state.weather_data['pressure'])
+                    else:
+                        default_pressure = 1013.25
+                except (TypeError, ValueError):
+                    default_pressure = 1013.25
+
                 pressure = float(
                     st.number_input(texts['pressure'], min_value=800.0, max_value=1100.0, value=default_pressure,
-                                    step=10.0,
-                                    format="%.2f", key='pressure'))
-
-            st.divider()
-
-            # قسم الرياح - استخدام الساعة الدائرية
-            st.subheader("💨 Wind Settings / إعدادات الرياح")
-
-            # استخدام عمودين لعرض الساعة والتحكم
-            wind_col1, wind_col2 = st.columns([1, 1])
+                                    step=10.0, format="%.2f", key='pressure'))
 
             with wind_col1:
                 # التحكم في سرعة الرياح
