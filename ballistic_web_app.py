@@ -767,13 +767,18 @@ class BallisticWebApp:
 
                 # أزرار سريعة للاتجاهات الأساسية
                 st.markdown("**Quick Directions / اتجاهات سريعة:**")
+
+                # الحل المعدل للمشكلة: التأكد من استخدام جميع الأعمدة بشكل صحيح
                 quick_cols = st.columns(4)
                 directions = [('N', 0), ('E', 90), ('S', 180), ('W', 270)]
+
                 for i, (label, angle) in enumerate(directions):
                     with quick_cols[i]:
                         if st.button(label, key=f'quick_dir_{angle}'):
                             st.session_state.wind_angle = float(angle)
                             st.rerun()
+                        # إضافة نص توضيحي صغير أسفل الزر
+                        st.caption(f"{angle}°")
 
             with wind_col2:
                 # التحكم في الاتجاه باستخدام شريط تمرير دائري
