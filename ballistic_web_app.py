@@ -5,24 +5,28 @@ import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime
 import requests
+import time
 
 # إعداد الصفحة
 st.set_page_config(
-    page_title="223 Rem Ballistic Pro",
+    page_title="223 Rem Ballistic Calculator Pro",
     page_icon="🎯",
     layout="wide"
 )
 
 
-class BallisticCalculator:
+class BallisticWebApp:
     def __init__(self):
         self.load_database()
+        self.init_session_state()
         self.WEATHER_API_KEY = "89e63f671bb53734c4fa238e1985a3ac"
 
     def load_database(self):
+        """قاعدة بيانات الذخيرة"""
         data = [
             ["Hornady", "V-MAX 55gr", 55, 0.255, 3240, 0.735],
             ["Hornady", "ELD Match 73gr", 73, 0.398, 2790, 1.05],
+            ["Hornady", "BTHP 68gr", 68, 0.355, 2960, 0.98],
             ["Federal", "Gold Medal 77gr", 77, 0.372, 2720, 0.995],
             ["Sierra", "MatchKing 69gr", 69, 0.301, 3000, 0.9],
             ["IMI", "M193 55gr", 55, 0.243, 3240, 0.72],
@@ -30,225 +34,571 @@ class BallisticCalculator:
         ]
         self.df = pd.DataFrame(data, columns=['Company', 'Type', 'Weight_gr', 'BC_G1', 'Velocity_FPS', 'Length_in'])
 
-    def get_translation(self, lang):
-        if lang == "العربية":
-            return {
-                'title': "حاسبة الرماية البالستية .223 Remington",
-                'ammo_sec': "بيانات الذخيرة",
-                'rifle_sec': "إعدادات البندقية",
-                'env_sec': "الظروف البيئية",
-                'wind_sec': "الرياح",
-                'res_sec': "النتائج والحسابات",
-                'calc_btn': "احسب المسار الآن",
-                'target_range': "المسافة للهدف",
-                'zero_range': "مسافة التصفير",
-                'scope_h': "ارتفاع المنظار",
-                'click_val': "قيمة النقرة",
-                'elev_corr': "تصحيح الارتفاع",
-                'wind_corr': "تصحيح الرياح",
-                'velocity': "السرعة عند الهدف",
-                'energy': "الطاقة",
-                'stability': "الاستقرار (Miller)",
-                'stable': "مستقر",
-                'unstable': "غير مستقر",
-                'clicks': "نقرة",
-                'up': "للأعلى", 'down': "للأسفل", 'left': "يسار", 'right': "يمين"
-            }
+    def init_session_state(self):
+        if 'language' not in st.session_state:
+            st.session_state.language = 'English'
+        if 'wind_angle' not in st.session_state:
+            st.session_state.wind_angle = 90.0
+        if 'wind_speed' not in st.session_state:
+            st.session_state.wind_speed = 10.0
+        if 'weather_data' not in st.session_state:
+            st.session_state.weather_data = None
+        if 'calculation_history' not in st.session_state:
+            st.session_state.calculation_history = []
+        if 'weather_location' not in st.session_state:
+            st.session_state.weather_location = "Cairo,EG"
+
+    def fetch_weather_data(self, location):
+        try:
+            if not self.WEATHER_API_KEY:
+                return {'success': False, 'error': 'API key not configured'}
+
+            url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={self.WEATHER_API_KEY}&units=metric"
+            response = requests.get(url, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    'success': True,
+                    'location': data.get('name', location),
+                    'temperature': data['main']['temp'],
+                    'pressure': data['main']['pressure'],
+                    'humidity': data['main']['humidity'],
+                    'wind_speed': data['wind']['speed'] * 2.237,
+                    'wind_direction': data['wind'].get('deg', 0),
+                    'description': data['weather'][0]['description']
+                }
+            return {'success': False, 'error': f"Error {response.status_code}"}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def calculate_air_density(self, altitude, temp_c, pressure_hpa):
+        """حساب كثافة الهواء النسبية"""
+        try:
+            temp_k = temp_c + 273.15
+            pressure_pa = pressure_hpa * 100
+            density = pressure_pa / (287.05 * temp_k)
+            sea_level_density = 1.225
+            return density / sea_level_density
+        except:
+            return 1.0
+
+    def calculate_drag_model_g1(self, velocity, bc):
+        """نموذج السحب G1 المحسن"""
+        # معاملات تقريبية لنموذج G1
+        if velocity > 2800:
+            drag_factor = 0.35
+        elif velocity > 2000:
+            drag_factor = 0.40
+        elif velocity > 1200:
+            drag_factor = 0.45
         else:
-            return {
-                'title': ".223 Remington Ballistic Calculator Pro",
-                'ammo_sec': "Ammunition Data",
-                'rifle_sec': "Rifle Settings",
-                'env_sec': "Environment",
-                'wind_sec': "Wind",
-                'res_sec': "Results",
-                'calc_btn': "Calculate Trajectory",
-                'target_range': "Target Range",
-                'zero_range': "Zero Range",
-                'scope_h': "Scope Height",
-                'click_val': "Click Value",
-                'elev_corr': "Elevation Correction",
-                'wind_corr': "Windage Correction",
-                'velocity': "Terminal Velocity",
-                'energy': "Terminal Energy",
-                'stability': "Stability (Miller)",
-                'stable': "Stable",
-                'unstable': "Unstable",
-                'clicks': "clicks",
-                'up': "UP", 'down': "DOWN", 'left': "LEFT", 'right': "RIGHT"
-            }
+            drag_factor = 0.50
 
-    def get_drag_coefficient(self, velocity):
-        """تقريب لمعامل السحب G1 بناءً على عدد ماخ"""
-        mach = velocity / 1125.0
-        if mach > 3.0: return 0.25
-        if mach > 2.0: return 0.28
-        if mach > 1.5: return 0.32
-        if mach > 1.0: return 0.40
-        return 0.55
+        # تعديل معامل السحب حسب BC
+        drag_deceleration = drag_factor * 0.00001 / max(bc, 0.001)
+        return drag_deceleration
 
-    def solve_ballistics(self, p):
-        # الثوابت
-        G = 32.174
-        dt = 0.002  # خطوة زمنية أدق
+    def calculate_trajectory_improved(self, params):
+        """محرك بالستي محسن بالكامل"""
 
-        # تحويل الوحدات
-        zero_r_ft = p['zero_range'] * 3.0
-        target_r_ft = p['target_range'] * 3.0
-        scope_h_ft = p['scope_height'] / 12.0
+        # استخراج المعاملات
+        weight = params['weight']  # grains
+        bc = params['bc']  # G1 BC
+        mv = params['mv']  # fps
+        zero_range = params['zero_range']  # yards
+        target_range = params['target_range']  # yards
+        scope_height = params['scope_height']  # inches
+        wind_speed = params['wind_speed']  # mph
+        wind_angle = params['wind_angle']  # degrees
+        twist = params['twist']  # inches
+        length = params['length']  # inches
 
-        # تصحيح الكثافة
-        rho_factor = (p['pressure'] / 1013.25) * (288.15 / (p['temp'] + 273.15))
-        eff_bc = p['bc'] * rho_factor
+        # معاملات بيئية
+        density_factor = self.calculate_air_density(
+            params.get('altitude', 0),
+            params.get('temperature', 15),
+            params.get('pressure', 1013)
+        )
 
-        def simulate(dist_ft):
-            v = p['mv']
-            x = 0.0
-            y = -scope_h_ft
-            t = 0.0
-            v_x = v
-            v_y = 0.0  # سيفترض الحساب لاحقاً زاوية الإطلاق
+        # تعديل BC حسب كثافة الهواء
+        effective_bc = bc * density_factor
 
-            while x < dist_ft:
-                v_curr = math.sqrt(v_x ** 2 + v_y ** 2)
-                drag = (0.0000209 * self.get_drag_coefficient(v_curr) * v_curr ** 2) / eff_bc
+        # ثوابت
+        G = 32.174  # قدم/ثانية²
+        INCHES_PER_FOOT = 12
+        FEET_PER_YARD = 3
 
-                ax = -(drag * (v_x / v_curr))
-                ay = -G - (drag * (v_y / v_curr))
+        def calculate_drop_and_velocity(distance_yards):
+            """حساب الهبوط والسرعة لمسافة محددة"""
+            if distance_yards <= 0:
+                return 0, mv, 0
 
-                v_x += ax * dt
-                v_y += ay * dt
-                x += v_x * dt
-                y += v_y * dt
+            distance_feet = distance_yards * FEET_PER_YARD
+
+            # محاكاة رقمية للمسار (طريقة أويلر المحسنة)
+            dt = 0.01  # خطوة زمنية صغيرة
+            v = mv  # سرعة أولية
+            x = 0  # مسافة أفقية
+            y = 0  # مسافة رأسية (هبوط)
+            t = 0  # زمن
+
+            while x < distance_feet and v > 100:
+                # حساب التباطؤ بسبب مقاومة الهواء
+                drag_deceleration = self.calculate_drag_model_g1(v, effective_bc)
+
+                # تحديث السرعة (مع مراعاة مقاومة الهواء فقط، إهمال الجاذبية في السرعة الأفقية)
+                v -= drag_deceleration * v * dt
+
+                # المسافة الأفقية
+                dx = v * dt
+                x += dx
+
+                # الهبوط الرأسي (تأثير الجاذبية)
+                dy = 0.5 * G * dt * dt
+                y += dy
+
+                # تحديث الزمن
                 t += dt
-                if v_x < 500: break  # توقف إذا فقدت الرصاصة طاقتها
-            return y, v_curr, t
 
-        # حساب زاوية الإطلاق للتصفير
-        # البحث عن الزاوية التي تجعل المسار = 0 عند مسافة التصفير
-        y_at_zero, _, _ = simulate(zero_r_ft)
-        launch_angle_rad = -math.atan(y_at_zero / zero_r_ft) if zero_r_ft > 0 else 0
+            # تحويل الهبوط إلى بوصات
+            drop_inches = y * INCHES_PER_FOOT
 
-        # حساب المسار الفعلي عند الهدف مع مراعاة زاوية الإطلاق
-        v_target = p['mv']
-        x = 0.0
-        y = -scope_h_ft
-        t = 0.0
-        v_x = p['mv'] * math.cos(launch_angle_rad)
-        v_y = p['mv'] * math.sin(launch_angle_rad)
+            return drop_inches, v, t
 
-        path_data = []
-        while x < target_r_ft:
-            v_curr = math.sqrt(v_x ** 2 + v_y ** 2)
-            drag = (0.0000209 * self.get_drag_coefficient(v_curr) * v_curr ** 2) / eff_bc
-            v_x += -(drag * (v_x / v_curr)) * dt
-            v_y += (-G - (drag * (v_y / v_curr))) * dt
-            x += v_x * dt
-            y += v_y * dt
-            t += dt
-            path_data.append((x / 3, y * 12))  # ياردة، بوصة
+        # حساب الهبوط والسرعة
+        drop_zero, _, _ = calculate_drop_and_velocity(zero_range)
+        drop_target, v_target, tof_target = calculate_drop_and_velocity(target_range)
 
-        final_y_in = y * 12
-        v_terminal = math.sqrt(v_x ** 2 + v_y ** 2)
+        # حساب زاوية الإطلاق (بالبوصة عند مسافة التصفير)
+        # عند مسافة التصفير، يجب أن يتقاطع مسار الرصاصة مع خط النظر
+        # خط النظر أعلى من السبطانة بمقدار scope_height
 
-        # حساب الرياح (معادلة Didion)
-        wind_fps = p['wind_speed'] * 1.46667
-        cross_wind = wind_fps * math.sin(math.radians(p['wind_angle']))
-        drift_in = cross_wind * (t - (target_r_ft / p['mv'])) * 12
+        # حساب زاوية الإطلاق بالدقيقة (MOA)
+        # 1 MOA = 1.047 بوصة عند 100 ياردة
+        if zero_range > 0:
+            # الزاوية المطلوبة بالدقيقة = (الهبوط + ارتفاع المنظار) / (المسافة/100 * 1.047)
+            angle_moa = (drop_zero + scope_height) / ((zero_range / 100) * 1.047)
+        else:
+            angle_moa = 0
+
+        # حساب المسار النسبي (بالنسبة لخط النظر)
+        # المسار = (زاوية الإطلاق * المسافة) - الهبوط - ارتفاع المنظار
+        angle_correction_inches = angle_moa * ((target_range / 100) * 1.047)
+        relative_path_inches = angle_correction_inches - drop_target - scope_height
+
+        # حساب انحراف الرياح (معادلة محسنة)
+        # تحويل سرعة الرياح إلى قدم/ثانية
+        wind_fps = wind_speed * 1.46667
+
+        # المركبة العرضية للرياح
+        crosswind_component = wind_fps * math.sin(math.radians(wind_angle))
+
+        # انحراف الرياح (بالبوصة)
+        # يعتمد على الزمن الذي تقضيه الرصاصة في الهواء والسرعة العرضية للرياح
+        # معادلة تقريبية: drift = crosswind * (TOF - (range/mv)) * 12
+        time_correction = tof_target - (target_range * FEET_PER_YARD / mv)
+        drift_inches = crosswind_component * max(time_correction, 0) * INCHES_PER_FOOT
+
+        # تحويل إلى وحدات المنظار
+        if params['scope_sys'] == "MOA":
+            # 1 MOA = 1.047 بوصة عند 100 ياردة
+            unit_value = (target_range / 100) * 1.047
+            unit_label = "MOA"
+        else:
+            # 1 MRAD = 3.6 بوصة عند 100 ياردة
+            unit_value = (target_range / 100) * 3.6
+            unit_label = "MRAD"
+
+        # تجنب القسمة على صفر
+        if unit_value <= 0:
+            unit_value = 0.001
+
+        drop_units = relative_path_inches / unit_value
+        drift_units = drift_inches / unit_value
+
+        # حساب الاستقرار (معادلة Miller المحسنة)
+        # معادلة Miller للاستقرار الجيروسكوبي
+        bullet_diameter = 0.224  # بوصة
+
+        if twist > 0 and length > 0 and bullet_diameter > 0:
+            # s = 30 * m / (t² * d³ * l * (1 + (l/d)²))
+            # حيث: m = كتلة الرصاصة بالـ grains
+            # t = معدل البرم بالبوصات لكل دورة
+            # d = قطر الرصاصة بالبوصات
+            # l = طول الرصاصة بالبوصات (بعدد أقطار)
+            length_in_calibers = length / bullet_diameter
+            stability = (30 * weight) / (
+                        twist ** 2 * bullet_diameter ** 3 * length_in_calibers * (1 + length_in_calibers ** 2))
+            is_stable = stability > 1.4  # معامل أمان أعلى
+        else:
+            stability = 0
+            is_stable = False
+
+        # حساب الطاقة
+        energy = (weight * v_target ** 2) / 450437  # ft-lbs
+
+        # عدد النقرات
+        clicks_elev = round(drop_units / params['click_value'])
+        clicks_wind = round(drift_units / params['click_value'])
 
         return {
-            'path_in': final_y_in,
-            'drift_in': drift_in,
-            'velocity': v_terminal,
-            'energy': (p['weight'] * v_terminal ** 2) / 450437,
-            'tof': t,
-            'path_points': path_data
+            'velocity': v_target,
+            'energy': energy,
+            'drop_units': drop_units,
+            'drift_units': drift_units,
+            'clicks_elev': clicks_elev,
+            'clicks_wind': clicks_wind,
+            'unit_label': unit_label,
+            'stability': stability,
+            'is_stable': is_stable,
+            'path_inches': relative_path_inches,
+            'drift_inches': drift_inches,
+            'drop_inches': drop_target,
+            'tof': tof_target,
+            'effective_bc': effective_bc,
+            'angle_moa': angle_moa,
+            'density_factor': density_factor
         }
 
+    def create_wind_rose(self, angle, speed):
+        """إنشاء رسم بياني لاتجاه الرياح"""
+        fig = go.Figure()
+        rad = math.radians(angle)
+
+        # إنشاء نقاط لسهم الرياح
+        arrow_length = speed / 10  # تكبير السهم حسب سرعة الرياح
+
+        # رسم خط الاتجاه
+        fig.add_trace(go.Scatter(
+            x=[0, math.sin(rad) * arrow_length],
+            y=[0, math.cos(rad) * arrow_length],
+            mode='lines+markers',
+            line=dict(color='red', width=3),
+            marker=dict(
+                symbol='arrow',
+                size=15,
+                angleref='previous',
+                color='red'
+            ),
+            name='Wind Direction'
+        ))
+
+        # رسم دائرة مرجعية
+        circle_angles = np.linspace(0, 2 * np.pi, 36)
+        circle_x = np.cos(circle_angles)
+        circle_y = np.sin(circle_angles)
+
+        fig.add_trace(go.Scatter(
+            x=circle_x,
+            y=circle_y,
+            mode='lines',
+            line=dict(color='gray', width=1, dash='dot'),
+            showlegend=False,
+            hoverinfo='none'
+        ))
+
+        fig.update_layout(
+            title=f"Wind: {speed:.1f} mph @ {angle}°",
+            xaxis=dict(visible=False, range=[-1.5, 1.5]),
+            yaxis=dict(visible=False, range=[-1.5, 1.5]),
+            height=300,
+            template='plotly_dark',
+            showlegend=False,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+
+        return fig
+
     def run(self):
-        # واجهة المستخدم
-        lang = st.sidebar.radio("Language / اللغة", ["English", "العربية"])
-        T = self.get_translation(lang)
+        """تشغيل التطبيق"""
 
-        st.title(T['title'])
+        # العنوان
+        st.title("🎯 .223 Remington Ballistic Calculator Pro")
 
-        col1, col2 = st.columns([1, 1.5])
+        # اختيار اللغة
+        lang = st.sidebar.radio("Language / اللغة", ["English", "العربية"], horizontal=True)
+        st.session_state.language = lang
 
-        with col1:
-            with st.expander(T['ammo_sec'], expanded=True):
-                comp = st.selectbox("Company", self.df['Company'].unique())
-                ammo = self.df[self.df['Company'] == comp]
-                a_type = st.selectbox("Type", ammo['Type'])
-                row = ammo[ammo['Type'] == a_type].iloc[0]
+        # ترجمة النصوص الأساسية
+        is_arabic = (lang == "العربية")
 
-                c1, c2 = st.columns(2)
-                weight = c1.number_input("Weight (gr)", value=float(row['Weight_gr']))
-                bc = c2.number_input("BC G1", value=float(row['BC_G1']), format="%.3f")
-                mv = c1.number_input("Muzzle Velocity (fps)", value=float(row['Velocity_FPS']))
-                b_len = c2.number_input("Bullet Length (in)", value=float(row['Length_in']))
+        titles = {
+            'ammo': "الذخيرة" if is_arabic else "Ammunition",
+            'rifle': "إعدادات البندقية" if is_arabic else "Rifle Settings",
+            'env': "الظروف البيئية" if is_arabic else "Environmental Conditions",
+            'wind': "الرياح" if is_arabic else "Wind",
+            'results': "النتائج" if is_arabic else "Results",
+            'calculate': "احسب" if is_arabic else "Calculate",
+            'fetch_weather': "جلب بيانات الطقس" if is_arabic else "Fetch Weather"
+        }
 
-            with st.expander(T['rifle_sec'], expanded=True):
-                c1, c2 = st.columns(2)
-                t_range = c1.number_input(T['target_range'], value=300, step=50)
-                z_range = c2.number_input(T['zero_range'], value=100, step=25)
-                s_height = c1.number_input(T['scope_h'], value=1.5)
-                twist = c2.number_input("Twist Rate 1:", value=7.0)
-                s_sys = st.selectbox("System", ["MOA", "MRAD"])
-                c_val = st.selectbox(T['click_val'], [0.25, 0.1] if s_sys == "MOA" else [0.1, 0.05])
+        # تقسيم الشاشة إلى عمودين
+        col_left, col_right = st.columns([1, 1.2])
 
-            with st.expander(T['wind_sec']):
-                w_speed = st.slider("Speed (mph)", 0, 30, 10)
-                w_angle = st.slider("Angle (°)", 0, 360, 90)
+        with col_left:
+            # ========== قسم الذخيرة ==========
+            st.subheader(f"📊 {titles['ammo']}")
 
-        with col2:
-            st.subheader(T['res_sec'])
+            # اختيار الشركة
+            companies = sorted(self.df['Company'].unique())
+            selected_company = st.selectbox("Company", companies, key='company')
 
+            # اختيار النوع
+            company_ammo = self.df[self.df['Company'] == selected_company]
+            ammo_types = company_ammo['Type'].tolist()
+            selected_type = st.selectbox("Type", ammo_types, key='type')
+
+            # بيانات الذخيرة المختارة
+            ammo_data = company_ammo[company_ammo['Type'] == selected_type].iloc[0]
+
+            col1, col2 = st.columns(2)
+            with col1:
+                weight = st.number_input("Weight (grains)",
+                                         value=float(ammo_data['Weight_gr']),
+                                         min_value=20.0, max_value=100.0, step=0.5)
+                bc = st.number_input("BC G1",
+                                     value=float(ammo_data['BC_G1']),
+                                     min_value=0.1, max_value=0.8, step=0.005, format="%.3f")
+            with col2:
+                mv = st.number_input("Muzzle Velocity (fps)",
+                                     value=float(ammo_data['Velocity_FPS']),
+                                     min_value=2000.0, max_value=4000.0, step=10.0)
+                bullet_length = st.number_input("Bullet Length (in)",
+                                                value=float(ammo_data['Length_in']),
+                                                min_value=0.5, max_value=1.5, step=0.01)
+
+            # ========== إعدادات البندقية ==========
+            st.subheader(f"🔧 {titles['rifle']}")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                scope_height = st.number_input("Scope Height (in)",
+                                               value=1.5, min_value=0.5, max_value=3.0, step=0.1)
+                zero_range = st.number_input("Zero Range (yards)",
+                                             value=100.0, min_value=25.0, max_value=200.0, step=25.0)
+                twist_rate = st.number_input("Twist Rate (1:in)",
+                                             value=7.0, min_value=4.0, max_value=14.0, step=0.5)
+            with col2:
+                target_range = st.number_input("Target Range (yards)",
+                                               value=300.0, min_value=25.0, max_value=1000.0, step=25.0)
+                scope_system = st.selectbox("Scope System", ["MOA", "MRAD"])
+                click_value = st.selectbox("Click Value",
+                                           [0.25, 0.125, 0.1, 0.05] if scope_system == "MOA" else [0.1, 0.05, 0.02])
+
+            # ========== الظروف البيئية ==========
+            st.subheader(f"🌤️ {titles['env']}")
+
+            # جلب بيانات الطقس
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                location = st.text_input("Location for weather",
+                                         value=st.session_state.weather_location,
+                                         key='location_input')
+            with col2:
+                if st.button(titles['fetch_weather'], use_container_width=True):
+                    with st.spinner('جاري جلب البيانات...' if is_arabic else 'Fetching weather...'):
+                        weather_data = self.fetch_weather_data(location)
+                        if weather_data['success']:
+                            st.session_state.weather_data = weather_data
+                            st.session_state.weather_location = location
+                            st.session_state.wind_speed = weather_data['wind_speed']
+                            st.session_state.wind_angle = weather_data['wind_direction']
+                            st.success("تم تحديث البيانات!" if is_arabic else "Weather updated!")
+                        else:
+                            st.error(weather_data.get('error', 'فشل الاتصال' if is_arabic else 'Connection failed'))
+
+            # إدخال البيانات البيئية
+            if st.session_state.weather_data and st.session_state.weather_data.get('success'):
+                weather = st.session_state.weather_data
+                temp = st.number_input("Temperature (°C)",
+                                       value=float(weather['temperature']),
+                                       min_value=-20.0, max_value=50.0, step=0.5)
+                pressure = st.number_input("Pressure (hPa)",
+                                           value=float(weather['pressure']),
+                                           min_value=800.0, max_value=1100.0, step=1.0)
+                st.info(f"💧 Humidity: {weather['humidity']}% | {weather['description'].capitalize()}")
+            else:
+                temp = st.number_input("Temperature (°C)", value=15.0, min_value=-20.0, max_value=50.0, step=0.5)
+                pressure = st.number_input("Pressure (hPa)", value=1013.0, min_value=800.0, max_value=1100.0, step=1.0)
+
+            altitude = st.number_input("Altitude (ft)", value=0.0, min_value=0.0, max_value=14000.0, step=100.0)
+
+            # ========== الرياح ==========
+            st.subheader(f"💨 {titles['wind']}")
+
+            wind_speed = st.slider("Wind Speed (mph)", 0.0, 40.0,
+                                   value=float(st.session_state.wind_speed), step=0.5)
+            wind_angle = st.slider("Wind Angle (°)", 0, 360,
+                                   value=int(st.session_state.wind_angle), step=5)
+
+            # رسم وردة الرياح
+            wind_rose = self.create_wind_rose(wind_angle, wind_speed)
+            st.plotly_chart(wind_rose, use_container_width=True)
+
+        with col_right:
+            st.subheader(f"📈 {titles['results']}")
+
+            # تجميع المعاملات
             params = {
-                'weight': weight, 'bc': bc, 'mv': mv, 'target_range': t_range,
-                'zero_range': z_range, 'scope_height': s_height,
-                'wind_speed': w_speed, 'wind_angle': w_angle,
-                'temp': 15, 'pressure': 1013.25
+                'weight': weight,
+                'bc': bc,
+                'mv': mv,
+                'length': bullet_length,
+                'twist': twist_rate,
+                'zero_range': zero_range,
+                'target_range': target_range,
+                'scope_height': scope_height,
+                'wind_speed': wind_speed,
+                'wind_angle': wind_angle,
+                'altitude': altitude,
+                'temperature': temp,
+                'pressure': pressure,
+                'scope_sys': scope_system,
+                'click_value': click_value
             }
 
-            res = self.solve_ballistics(params)
+            # زر الحساب
+            if st.button(f"🚀 {titles['calculate']}", type="primary", use_container_width=True):
 
-            # حساب النقرات
-            unit_val = (t_range / 100) * (1.047 if s_sys == "MOA" else 3.6)
-            elev_units = -res['path_in'] / unit_val
-            wind_units = res['drift_in'] / unit_val
+                # حساب المسار
+                result = self.calculate_trajectory_improved(params)
 
-            # عرض الكروت
-            m1, m2, m3 = st.columns(3)
+                if result:
+                    # حفظ في التاريخ
+                    st.session_state.calculation_history.append({
+                        'time': datetime.now().strftime("%H:%M:%S"),
+                        'range': target_range,
+                        'drop': f"{result['drop_units']:.2f} {result['unit_label']}",
+                        'wind': f"{result['drift_units']:.2f} {result['unit_label']}"
+                    })
 
-            elev_dir = T['up'] if elev_units > 0 else T['down']
-            m1.metric(T['elev_corr'], f"{abs(elev_units):.2f} {s_sys}")
-            m1.caption(f"{abs(round(elev_units / c_val))} {T['clicks']} {elev_dir}")
+                    # عرض النتائج الرئيسية
+                    col1, col2 = st.columns(2)
 
-            wind_dir = T['right'] if wind_units > 0 else T['left']
-            m2.metric(T['wind_corr'], f"{abs(wind_units):.2f} {s_sys}")
-            m2.caption(f"{abs(round(wind_units / c_val))} {T['clicks']} {wind_dir}")
+                    with col1:
+                        # اتجاه التصحيح
+                        elev_direction = "DOWN" if result['drop_units'] < 0 else "UP"
+                        st.metric(
+                            "Elevation Correction",
+                            f"{abs(result['drop_units']):.2f} {result['unit_label']}",
+                            f"{abs(result['clicks_elev'])} clicks {elev_direction}",
+                            delta_color="off"
+                        )
 
-            # الاستقرار
-            sd = (30 * weight) / (twist ** 2 * 0.224 ** 3 * (b_len / 0.224) * (1 + (b_len / 0.224) ** 2))
-            st_text = T['stable'] if sd > 1.4 else T['unstable']
-            m3.metric(T['stability'], f"{sd:.2f}", st_text, delta_color="normal" if sd > 1.4 else "inverse")
+                    with col2:
+                        wind_direction = "RIGHT" if result['drift_units'] > 0 else "LEFT"
+                        st.metric(
+                            "Windage Correction",
+                            f"{abs(result['drift_units']):.2f} {result['unit_label']}",
+                            f"{abs(result['clicks_wind'])} clicks {wind_direction}",
+                            delta_color="off"
+                        )
 
-            # الرسم البياني
-            pts = res['path_points']
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=[p[0] for p in pts], y=[p[1] for p in pts],
-                                     name="Trajectory", line=dict(color='cyan', width=3)))
-            fig.add_hline(y=0, line_dash="dash", line_color="red")
-            fig.update_layout(template="plotly_dark", height=400,
-                              xaxis_title="Range (Yards)", yaxis_title="Drop (Inches)",
-                              margin=dict(l=20, r=20, t=20, b=20))
-            st.plotly_chart(fig, use_container_width=True)
+                    # إحصائيات إضافية
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Velocity", f"{int(result['velocity'])} fps")
+                    col2.metric("Energy", f"{int(result['energy'])} ft-lbs")
 
-            with st.expander("Detailed Data"):
-                st.write(f"Velocity at Target: {int(res['velocity'])} fps")
-                st.write(f"Energy at Target: {int(res['energy'])} ft-lbs")
-                st.write(f"Time of Flight: {res['tof']:.3f} s")
+                    stability_color = "normal" if result['is_stable'] else "inverse"
+                    stability_text = "✓ Stable" if result['is_stable'] else "⚠ Unstable"
+                    col3.metric("Stability", f"{result['stability']:.2f}", stability_text, delta_color=stability_color)
+
+                    # تفاصيل إضافية
+                    with st.expander("Detailed Ballistics"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("**Flight Data:**")
+                            st.write(f"• Time of Flight: {result['tof']:.3f} sec")
+                            st.write(f"• Drop at target: {result['drop_inches']:.2f} inches")
+                            st.write(f"• Wind Drift: {result['drift_inches']:.2f} inches")
+                            st.write(f"• Launch Angle: {result['angle_moa']:.2f} MOA")
+
+                        with col2:
+                            st.write("**Environmental:**")
+                            st.write(f"• Air Density Factor: {result['density_factor']:.3f}")
+                            st.write(f"• Effective BC: {result['effective_bc']:.3f}")
+                            st.write(f"• Crosswind: {wind_speed * math.sin(math.radians(wind_angle)):.1f} mph")
+
+                    # رسم المسار
+                    st.subheader("📊 Bullet Trajectory")
+
+                    # إنشاء نقاط المسار
+                    ranges = np.linspace(0, target_range, 100)
+                    path_points = []
+
+                    for r in ranges:
+                        temp_params = params.copy()
+                        temp_params['target_range'] = r
+                        temp_result = self.calculate_trajectory_improved(temp_params)
+                        if temp_result:
+                            path_points.append(temp_result['path_inches'])
+                        else:
+                            path_points.append(0)
+
+                    # رسم المسار
+                    fig = go.Figure()
+
+                    # منحنى المسار
+                    fig.add_trace(go.Scatter(
+                        x=ranges,
+                        y=path_points,
+                        mode='lines',
+                        name='Bullet Path',
+                        line=dict(color='cyan', width=3),
+                        fill='tozeroy',
+                        fillcolor='rgba(0, 255, 255, 0.1)'
+                    ))
+
+                    # خط النظر
+                    fig.add_hline(
+                        y=0,
+                        line_dash='dash',
+                        line_color='red',
+                        annotation_text='Line of Sight',
+                        annotation_position='bottom right'
+                    )
+
+                    # نقطة التصفير
+                    fig.add_vline(
+                        x=zero_range,
+                        line_dash='dot',
+                        line_color='green',
+                        annotation_text=f'Zero: {zero_range}yd',
+                        annotation_position='top left'
+                    )
+
+                    # نقطة الهدف
+                    fig.add_vline(
+                        x=target_range,
+                        line_dash='dot',
+                        line_color='yellow',
+                        annotation_text=f'Target: {target_range}yd',
+                        annotation_position='top right'
+                    )
+
+                    fig.update_layout(
+                        xaxis_title="Range (yards)",
+                        yaxis_title="Path (inches)",
+                        template='plotly_dark',
+                        hovermode='x unified',
+                        height=400,
+                        margin=dict(l=40, r=40, t=20, b=40)
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+
+            # عرض التاريخ
+            if st.session_state.calculation_history:
+                with st.expander("📜 Calculation History"):
+                    history_df = pd.DataFrame(st.session_state.calculation_history)
+                    st.dataframe(history_df, use_container_width=True)
+
+                    if st.button("Clear History"):
+                        st.session_state.calculation_history = []
+                        st.rerun()
 
 
 if __name__ == "__main__":
-    BallisticCalculator().run()
+    app = BallisticWebApp()
+    app.run()
